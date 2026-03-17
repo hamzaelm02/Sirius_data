@@ -1,0 +1,97 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: scmd_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-scmd_gold}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  vault:
+    image: hashicorp/vault:1.15
+    container_name: scmd_vault
+    environment:
+      VAULT_DEV_ROOT_TOKEN_ID: root
+      VAULT_DEV_LISTEN_ADDRESS: 0.0.0.0:8200
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    healthcheck:
+      test: ["CMD", "sh", "-c", "VAULT_ADDR=http://127.0.0.1:8200 vault status"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  vault-init:
+    image: hashicorp/vault:1.15
+    container_name: scmd_vault_init
+    depends_on:
+      vault:
+        condition: service_healthy
+    environment:
+      VAULT_ADDR: http://vault:8200
+      VAULT_TOKEN: root
+    entrypoint: >
+      sh -c '
+        echo "Waiting for vault to be ready..."
+        sleep 2
+        vault secrets enable -path=secret kv-v2 || true
+        vault kv put secret/scmd/postgres \
+          user="postgres" \
+          password="postgres" \
+          host="postgres" \
+          port=5432 \
+          database="scmd_gold"
+        echo "Vault secrets initialized successfully!"
+      '
+
+  finance_api:
+    build:
+      context: ./finance_api
+    container_name: scmd_finance_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    environment:
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=root
+      - VAULT_SECRET_PATH=secret/data/scmd/postgres
+    ports:
+      - "8001:8001"
+
+  prescription_api:
+    build:
+      context: ./prescription_api
+    container_name: scmd_prescription_api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      vault:
+        condition: service_healthy
+      vault-init:
+        condition: service_completed_successfully
+    environment:
+      - VAULT_ADDR=http://vault:8200
+      - VAULT_TOKEN=root
+      - VAULT_SECRET_PATH=secret/data/scmd/postgres
+    ports:
+      - "8002:8002"
+
+volumes:
+  pgdata:
