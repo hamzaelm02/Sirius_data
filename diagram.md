@@ -48,8 +48,8 @@ flowchart TB
     HDFS_Silver -->|Compute 12 KPIs| Postgres
 
     %% Consumer Data Flow
-    FinanceAPI -->|Query Finance KPIs (F1-F6)| Postgres
-    PrescriptionAPI -->|Query Prescription KPIs (P1-P6)| Postgres
+    FinanceAPI -->|"Query Finance KPIs (F1-F6)"| Postgres
+    PrescriptionAPI -->|"Query Prescription KPIs (P1-P6)"| Postgres
     Grafana -->|Visualize Dashboards| Postgres
 
     %% Credentials / Security Flow
