@@ -11,27 +11,26 @@ flowchart TB
     end
 
     subgraph VM_Airflow ["VM: 10.0.1.10 (Orchestration)"]
-        Airflow["Apache Airflow 2.x\n(scmd_pipeline_dag)"]
+        Airflow["Apache Airflow 2.x<br>(scmd_pipeline_dag)"]
     end
 
     subgraph VM_DataLake ["VM: 10.0.1.20 (spark_ssh / HDFS master)"]
-        Spark_Jobs["Apache Spark 3.x\n(PySpark Scripts 00-04)"]
-        HDFS_Bronze[("HDFS: Bronze Zone\nRaw Parquet\nPartitioned by YEAR_MONTH")]
-        HDFS_Silver[("HDFS: Silver Zone\nClean Parquet\nPartitioned by month_display")]
+        Spark_Jobs["Apache Spark 3.x<br>(PySpark Scripts 00-04)"]
+        HDFS_Bronze[("HDFS: Bronze Zone<br>Raw Parquet<br>Partitioned by YEAR_MONTH")]
+        HDFS_Silver[("HDFS: Silver Zone<br>Clean Parquet<br>Partitioned by month_display")]
     end
 
     subgraph VM_Vault ["VM: 172.31.250.180 (Security)"]
-        Vault{"HashiCorp Vault\n(Secret Management)"}
+        Vault{"HashiCorp Vault<br>(Secret Management)"}
     end
 
     subgraph VM_Database ["VM: 10.0.1.30 (Relational Database)"]
-        Postgres[("PostgreSQL\nGold Zone\n(12 KPI Tables)")]
+        Postgres[("PostgreSQL<br>Gold Zone<br>(12 KPI Tables)")]
     end
 
     subgraph VM_Microservices ["VM: 10.0.1.40 (Docker Compose Host)"]
-        direction TB
-        FinanceAPI["Finance API\n[FastAPI - Port 8001]"]
-        PrescriptionAPI["Prescription API\n[FastAPI - Port 8002]"]
+        FinanceAPI["Finance API<br>[FastAPI - Port 8001]"]
+        PrescriptionAPI["Prescription API<br>[FastAPI - Port 8002]"]
     end
 
     subgraph VM_BI ["VM: 10.0.1.50 (Business Intelligence)"]
