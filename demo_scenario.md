@@ -1,87 +1,88 @@
-# 🎯 Scénario de Démonstration Live (SCMD)
+# Scénario de Démonstration : Architecture SCMD & Intégration Sécurisée
 
-Ce document décrit étape par étape les manipulations techniques à réaliser devant le professeur pour prouver que l'ensemble de votre architecture (Pipeline Data + Sécurité Vault + API Microservices) fonctionne correctement.
+Ce document présente les étapes de validation permettant d'éprouver l'architecture mise en place, allant de l'ingestion des données à leur restitution sécurisée via les Microservices.
 
----
-
-## ⏳ Pré-requis avant l'arrivée du professeur
-* **Connecté** en SSH sur votre cluster VMs.
-* Ayez **deux terminaux ouverts** :
-    1. Un terminal dans le dossier contenant le `docker-compose.yml` (votre VM *Docker Host / Mircroservices*).
-    2. Un terminal sur la VM *Spark/HDFS* configuré pour lancer des jobs.
-* **Optionnel :** Le navigateur web ouvert prêt à afficher le Swagger (Swagger UI).
+## Objectif de la Démonstration
+Prouver le bon fonctionnement de la chaîne de bout en bout :
+1. Déploiement automatisé et sécurisé de l'infrastructure via Docker Compose.
+2. Injection statique des secrets de la base de données via HashiCorp Vault.
+3. Authentification des Microservices auprès de Vault pour initialiser les connexions PostgreSQL en mémoire.
+4. Traitement Big Data (Spark) et restitution temps réel par les APIs.
 
 ---
 
-## 🎬 Action 1 : Le "Reset de Production" (2 min)
-*Le but est de montrer que tout votre environnement peut se monter en quelques secondes depuis le code source.*
+## Étape 1 : Initialisation de l'Infrastructure Docker
+L'infrastructure applicative (Microservices, Base de Données Gold, et Coffre-fort Vault) est définie pour être redéployable à la demande.
 
-1. **Dans le Terminal Docker :**
-   Exécutez la commande pour tout éteindre et nettoyer.
-   ```bash
-   docker-compose down -v
-   ```
-   > *"Monsieur, je commence par une page blanche pour vous montrer le déploiement de zéro."*
+**Action :**
+Démarrage des services à partir du fichier `docker-compose.yml`.
 
-2. **Toujours dans le Terminal Docker :**
-   Démarrez l'infrastructure (PostgreSQL, Vault, et les APIs).
-   ```bash
-   docker-compose up -d --build
-   ```
-   > *"Docker compose vient de démarrer ma base de données PostgreSQL, mon serveur de coffre-fort HashiCorp Vault, mon script de configuration éphémère vault-init, et mes deux APIs FastAPI (Finance et Prescriptions)."*
+```bash
+docker-compose up -d --build
+```
 
----
-
-## 🔐 Action 2 : La preuve de l'authentification Vault (2 min)
-*Le but est de montrer que vos APIs n'ont pas de mots de passe codés en dur, mais qu'elles ont réussi à se connecter.*
-
-1. **Dans le Terminal Docker :**
-   Exécutez cette requête (ou utilisez votre navigateur) :
-   ```bash
-   curl -s http://localhost:8001/health | jq
-   ```
-   *Ce qui va s'afficher : `{"status":"ok","service":"finance_api","db_initialized":true}`*
-   
-   > *"Ici, on voit que l'API Finance est passée au statut 'true' pour la base de données. Cela prouve qu'elle a pu contacter le Vault, s'authentifier, lire le secret sécurisé, et construire dynamiquement la connexion SQLAlchemy ("`engine`") vers PostgreSQL."*
+**Résultat attendu :**
+- Le conteneur `scmd_postgres` (Base de Données) démarre.
+- Le conteneur `scmd_vault` démarre en mode développement.
+- Le conteneur éphémère `scmd_vault_init` s'exécute, inscrit les identifiants PostgreSQL de manière sécurisée dans Vault, puis s'arrête (`Exited 0`).
+- Les conteneurs `scmd_finance_api` et `scmd_prescription_api` démarrent après validation des Healthchecks de dépendance.
 
 ---
 
-## 💥 Action 3 : La Base de Données est Vide (1 min)
-*Le but est de montrer que vos APIs pointent bien sur la bonne base, mais que les KPIs n'ont pas encore été calculés par Spark.*
+## Étape 2 : Vérification de l'Intégration Vault (Zero-Trust)
+Les Microservices ne contiennent aucun mot de passe en dur. À leur lancement, ils effectuent un appel API interne vers Vault.
 
-1. **Sur le Navigateur :**
-   Ouvrez le Swagger de FastAPI : `http://<IP_DE_VOTRE_VM>:8001/docs`
-2. **Cliquez sur l'endpoint `/kpis/f1`**, puis **"Try it out"** et **"Execute"**.
-3. **Pointez l'écran :**
-   L'API retourne une Erreur 500 : `relation "gold_cost_per_month" does not exist`.
+**Action :**
+Test du endpoint de santé (`/health`) sur l'API Finance.
 
-   > *"C'est tout à fait normal. L'infrastructure web est prête, mais le pipeline de données n'a pas encore tourné aujourd'hui. Spark n'a pas encore publié ses statistiques dans PostgreSQL."*
+```bash
+curl -s http://localhost:8001/health
+```
 
----
-
-## ⚡ Action 4 : Exécution du Pipeline Big Data (3 min)
-*Le but est de prouver votre chaîne Hadoop/Spark devant le jury.*
-
-1. **Changez de Terminal (allez sur la VM Spark) :**
-   Lancez à la main le script PySpark de la dernière étape du pipeline (Bronze/Silver vers Gold).
-   ```bash
-   spark-submit --jars /home/spark/postgresql.jar /home/spark/scripts/04_silver_to_gold.py
-   ```
-   *(Pendant que Spark calcule et affiche ses logs `INFO`, commentez l'action)* : 
-   > *"Habituellement, c'est Airflow qui déclenche ce script toutes les nuits. Ici, je lance le job Spark qui prend les données parquet de la zone Silver sur le cluster HDFS, calcule les indicateurs complexes, et les pousse en BDD."*
+**Résultat attendu :**
+```json
+{"status": "ok", "service": "finance_api", "db_initialized": true}
+```
+*Le flag `db_initialized: true` démontre que l'application a réussi à s'authentifier auprès de Vault via son Token, à lire le secret, et à instancier le moteur SQLAlchemy connecté à PostgreSQL. En cas d'échec d'authentification ou si le secret est absent, le serveur refuse de démarrer.*
 
 ---
 
-## 🏆 Action 5 : Résultat final et Microservices (2 min)
-*Le but est de fermer la boucle et de montrer que l'API distribue instantanément la nouvelle donnée.*
+## Étape 3 : Traitement de la Donnée (Airflow/Spark)
+Une fois l'infrastructure prête, les tables métiers dans PostgreSQL sont initialement vides ou non créées, attendant l'exécution complète du pipeline Data.
 
-1. **Retournez sur le Navigateur (Swagger) :**
-   Cliquez à nouveau sur **"Execute"** pour l'endpoint `/kpis/f1`.
-2. **La magie opère :**
-   Le JSON s'affiche instantanément avec le top des coûts des médicaments par mois calculés !
+**Action :**
+Simulation de l'orchestration Airflow en exécutant la dernière étape du pipeline (Script PySpark de traitement Silver vers Gold) sur le noeud Master HDFS.
 
-   > *"Spark a terminé, les données Gold sont en base. Notre API n'a subi aucune interruption (Zéro Downtime), et la nouvelle information est maintenant disponible de manière traçable et sécurisée pour le Frontend (Next.js) ou Grafana de mon collègue."*
+```bash
+spark-submit --jars /home/spark/postgresql.jar /home/spark/scripts/04_silver_to_gold.py
+```
+
+**Résultat attendu :**
+- Spark lit les données nettoyées depuis la zone Silver (HDFS).
+- Spark calcule les agrégations complexes (ex: Variations MoM, Coûts Unitaire).
+- Spark crée et peuple les 12 tables KPIs dans `scmd_gold` via une connexion JDBC.
 
 ---
-## ✨ Fin de la Démontration
-*"Avez-vous des questions sur un point technique précis de ce processus ?"*
+
+## Étape 4 : Validation de la Restitution (APIs Microservices)
+Dès que le script Spark termine, les données doivent être immédiatement disponibles de manière sécurisée pour les applications frontales ou les outils BI (Grafana / Next.js).
+
+**Action :**
+Interrogation d'un endpoint de la Data Finance (ex: KPI F1 - Coût total par mois).
+
+```bash
+curl -s http://localhost:8001/kpis/f1
+```
+
+**Résultat attendu :**
+L'API retourne un tableau JSON contenant les données fraîchement calculées par Spark.
+
+```json
+[
+  {"month_display": "2025-08", "total_cost": 142580.50},
+  {"month_display": "2025-09", "total_cost": 150230.10}
+]
+```
+
+## Conclusion
+Ces quatres étapes valident que le couplage entre l'ingestion massive (Spark/HDFS) et l'exposition sécurisée (Vault/FastAPI) est opérationnel, résilient, et conforme aux standards DevSecOps de découplage des secrets industriels.
