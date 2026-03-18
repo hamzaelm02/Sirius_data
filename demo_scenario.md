@@ -1,39 +1,37 @@
-# Scénario de Démonstration : Architecture SCMD & Intégration Sécurisée
+# Scénario de Démonstration : Architecture Sécurisée des Microservices
 
-Ce document présente les étapes de validation permettant d'éprouver l'architecture mise en place, allant de l'ingestion des données à leur restitution sécurisée via les Microservices.
+Ce document présente le protocole de validation de la sécurité de l'architecture backend, avec un focus particulier sur la gestion des secrets via HashiCorp Vault.
 
 ## Objectif de la Démonstration
-Prouver le bon fonctionnement de la chaîne de bout en bout :
-1. Déploiement automatisé et sécurisé de l'infrastructure via Docker Compose.
-2. Injection statique des secrets de la base de données via HashiCorp Vault.
-3. Authentification des Microservices auprès de Vault pour initialiser les connexions PostgreSQL en mémoire.
-4. Traitement Big Data (Spark) et restitution temps réel par les APIs.
+Prouver le découplage total entre le code source applicatif (FastAPI) et les secrets d'infrastructure (PostgreSQL), en démontrant :
+1. Le déploiement conteneurisé intégrant un coffre-fort numérique dynamique.
+2. L'absence de mots de passe en clair dans les conteneurs des APIs.
+3. Le mécanisme d'injection statique et de récupération asynchrone ("Zero-Trust") des identifiants au démarrage des services.
 
 ---
 
-## Étape 1 : Initialisation de l'Infrastructure Docker
-L'infrastructure applicative (Microservices, Base de Données Gold, et Coffre-fort Vault) est définie pour être redéployable à la demande.
+## Étape 1 : Initialisation de l'Infrastructure Docker (SecOps)
+L'environnement isole volontairement la base de données et le routeur d'accès via des réseaux fermés gérés par Docker Compose.
 
 **Action :**
-Démarrage des services à partir du fichier `docker-compose.yml`.
+Démarrage simultané des services.
 
 ```bash
 docker-compose up -d --build
 ```
 
-**Résultat attendu :**
-- Le conteneur `scmd_postgres` (Base de Données) démarre.
-- Le conteneur `scmd_vault` démarre en mode développement.
-- Le conteneur éphémère `scmd_vault_init` s'exécute, inscrit les identifiants PostgreSQL de manière sécurisée dans Vault, puis s'arrête (`Exited 0`).
-- Les conteneurs `scmd_finance_api` et `scmd_prescription_api` démarrent après validation des Healthchecks de dépendance.
+**Observation attendue :**
+- Le service `scmd_vault` démarre et devient sain (`Healthy`).
+- Le conteneur éphémère `scmd_vault_init` s'exécute pour inscrire les accès BDD (User, Password, Host, Database) via la commande `vault kv put` directement dans le coffre.
+- Les Microservices (`finance_api` et `prescription_api`) démarrent **uniquement** après initialisation sécurisée du Vault.
 
 ---
 
-## Étape 2 : Vérification de l'Intégration Vault (Zero-Trust)
-Les Microservices ne contiennent aucun mot de passe en dur. À leur lancement, ils effectuent un appel API interne vers Vault.
+## Étape 2 : L'Appel HTTP vers le Vault (Preuve d'Authentification)
+Le code applicatif dépend du composant tiers HashiCorp Vault pour initialiser ses moteurs JDBC/SQLAlchemy. 
 
 **Action :**
-Test du endpoint de santé (`/health`) sur l'API Finance.
+Vérification des sondes de vitalité (Healthchecks) de l'API.
 
 ```bash
 curl -s http://localhost:8001/health
@@ -43,46 +41,14 @@ curl -s http://localhost:8001/health
 ```json
 {"status": "ok", "service": "finance_api", "db_initialized": true}
 ```
-*Le flag `db_initialized: true` démontre que l'application a réussi à s'authentifier auprès de Vault via son Token, à lire le secret, et à instancier le moteur SQLAlchemy connecté à PostgreSQL. En cas d'échec d'authentification ou si le secret est absent, le serveur refuse de démarrer.*
+**Interprétation :** 
+L'application a utilisé son jeton d'accès (`VAULT_TOKEN`) transmis de façon éphémère à l'exécution, a requêté le chemin racine `secret/data/scmd/postgres` en HTTP, et a consolidé les chaînes de connexion en mémoire vive. L'indicateur `db_initialized: true` fait office de preuve de bon fonctionnement de cette chaîne de sécurité.
 
 ---
 
-## Étape 3 : Traitement de la Donnée (Airflow/Spark)
-Une fois l'infrastructure prête, les tables métiers dans PostgreSQL sont initialement vides ou non créées, attendant l'exécution complète du pipeline Data.
-
-**Action :**
-Simulation de l'orchestration Airflow en exécutant la dernière étape du pipeline (Script PySpark de traitement Silver vers Gold) sur le noeud Master HDFS.
-
-```bash
-spark-submit --jars /home/spark/postgresql.jar /home/spark/scripts/04_silver_to_gold.py
-```
-
-**Résultat attendu :**
-- Spark lit les données nettoyées depuis la zone Silver (HDFS).
-- Spark calcule les agrégations complexes (ex: Variations MoM, Coûts Unitaire).
-- Spark crée et peuple les 12 tables KPIs dans `scmd_gold` via une connexion JDBC.
-
----
-
-## Étape 4 : Validation de la Restitution (APIs Microservices)
-Dès que le script Spark termine, les données doivent être immédiatement disponibles de manière sécurisée pour les applications frontales ou les outils BI (Grafana / Next.js).
-
-**Action :**
-Interrogation d'un endpoint de la Data Finance (ex: KPI F1 - Coût total par mois).
-
-```bash
-curl -s http://localhost:8001/kpis/f1
-```
-
-**Résultat attendu :**
-L'API retourne un tableau JSON contenant les données fraîchement calculées par Spark.
-
-```json
-[
-  {"month_display": "2025-08", "total_cost": 142580.50},
-  {"month_display": "2025-09", "total_cost": 150230.10}
-]
-```
+## Étape 3 : Scénario d'Échec (Robustesse SecOps)
+*(Optionnel / Pour discussion)*
+Si le secret est modifié (rotation manuelle par équipe Ops) via la CLI Vault, ou si le conteneur Vault est inaccessible, le Microservice échouera dès le démarrage (Fail-Fast) en retournant une erreur `HTTPException(500)` bloquant ainsi toute fuite potentiel de tentatives de connexion non sécurisées vers la base de données cible.
 
 ## Conclusion
-Ces quatres étapes valident que le couplage entre l'ingestion massive (Spark/HDFS) et l'exposition sécurisée (Vault/FastAPI) est opérationnel, résilient, et conforme aux standards DevSecOps de découplage des secrets industriels.
+L'architecture démontre l'application stricte du principe de moindre privilège (Least-Privilege). Les Microservices ne connaissent pas la topologie de la base de données avant leur exécution, neutralisant les risques de compromissions liés aux dépôts de code partagés.
