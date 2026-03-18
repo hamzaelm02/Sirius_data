@@ -16,17 +16,29 @@ flowchart TB
             Airflow["Apache Airflow 2.x<br>(scmd_pipeline_dag)"]
         end
 
-        subgraph VM_DataLake ["VM: 10.0.1.20 (HDFS Master)"]
+        subgraph Cluster_Hadoop ["Cluster HDFS"]
+            direction TB
+            subgraph VM_Hadoop_Master ["VM Master: 172.31.250.221"]
+                HDFS_Bronze[("HDFS Bronze<br>Raw CSV")]
+                HDFS_Silver[("HDFS Silver<br>Clean Parquet")]
+            end
+            subgraph VM_Hadoop_W1 ["VM Worker 1: 172.31.249.180"]
+                DN1[("DataNode 1")]
+            end
+            subgraph VM_Hadoop_W2 ["VM Worker 2: 172.31.255.180"]
+                DN2[("DataNode 2")]
+            end
+        end
+
+        subgraph VM_Spark ["VM Spark: 172.31.252.106"]
             Spark_Jobs["Apache Spark 3.x<br>(Scripts 00-04)"]
-            HDFS_Bronze[("HDFS Bronze<br>Raw CSV")]
-            HDFS_Silver[("HDFS Silver<br>Clean Parquet")]
         end
 
         subgraph VM_Vault ["VM: 172.31.250.180 (Securité)"]
             Vault{"HashiCorp Vault<br>(Gestion des Secrets)"}
         end
 
-        subgraph VM_Database_1 ["VM: 10.0.1.30 (BDD Analytics)"]
+        subgraph VM_Database_1 ["VM BDD: 172.31.249.214 (Analytics)"]
             Postgres_Data[("PostgreSQL Analytics<br>Gold Zone (KPIs)")]
         end
 
@@ -118,7 +130,7 @@ flowchart TB
     classDef webBox fill:#fff3e0,stroke:#e65100,stroke-width:2px;
     classDef extUser fill:#eeeeee,stroke:#333,stroke-width:3px;
 
-    class VM_Airflow,VM_DataLake,VM_Vault,VM_Database_1,VM_Microservices_API,VM_BI dataBox;
+    class VM_Airflow,Cluster_Hadoop,VM_Hadoop_Master,VM_Hadoop_W1,VM_Hadoop_W2,VM_Spark,VM_Vault,VM_Database_1,VM_Microservices_API,VM_BI dataBox;
     class VM_CICD,VM_RProxy,VM_IAM,VM_Frontend,VM_Backend,VM_Database_2 webBox;
     class UserExtern extUser;
 
