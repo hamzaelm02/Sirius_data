@@ -1,54 +1,47 @@
-# Scénario de Démonstration : Architecture Sécurisée des Microservices
+# Scénario de Démonstration : Architecture Microservices Sécurisée
 
-Ce document présente le protocole de validation de la sécurité de l'architecture backend, avec un focus particulier sur la gestion des secrets via HashiCorp Vault.
+Ce document décrit comment montrer que l'architecture fonctionne correctement, avec un focus sur la gestion des secrets via HashiCorp Vault.
 
-## Objectif de la Démonstration
-Prouver le découplage total entre le code source applicatif (FastAPI) et les secrets d'infrastructure (PostgreSQL), en démontrant :
-1. Le déploiement conteneurisé intégrant un coffre-fort numérique dynamique.
-2. L'absence de mots de passe en clair dans les conteneurs des APIs.
-3. Le mécanisme d'injection statique et de récupération asynchrone ("Zero-Trust") des identifiants au démarrage des services.
+## Objectif
+
+Montrer que le code source ne contient aucun mot de passe en clair, et que les credentials PostgreSQL sont injectés dynamiquement au démarrage via Vault.
 
 ---
 
-## Étape 1 : Initialisation de l'Infrastructure Docker (SecOps)
-L'environnement isole volontairement la base de données et le routeur d'accès via des réseaux fermés gérés par Docker Compose.
-
-**Action :**
-Démarrage simultané des services.
+## Étape 1 : Démarrer l'infrastructure
 
 ```bash
 docker-compose up -d --build
 ```
 
-**Observation attendue :**
-- Le service `scmd_vault` démarre et devient sain (`Healthy`).
-- Le conteneur éphémère `scmd_vault_init` s'exécute pour inscrire les accès BDD (User, Password, Host, Database) via la commande `vault kv put` directement dans le coffre.
-- Les Microservices (`finance_api` et `prescription_api`) démarrent **uniquement** après initialisation sécurisée du Vault.
+**Ce qu'on doit voir :**
+- `scmd_vault` démarre et passe à l'état `Healthy`
+- `scmd_vault_init` s'exécute une seule fois pour stocker les credentials PostgreSQL dans Vault (`vault kv put`)
+- `finance_api` et `prescription_api` démarrent seulement après que Vault soit prêt
 
 ---
 
-## Étape 2 : L'Appel HTTP vers le Vault (Preuve d'Authentification)
-Le code applicatif dépend du composant tiers HashiCorp Vault pour initialiser ses moteurs JDBC/SQLAlchemy. 
-
-**Action :**
-Vérification des sondes de vitalité (Healthchecks) de l'API.
+## Étape 2 : Vérifier que l'API récupère bien ses secrets
 
 ```bash
 curl -s http://localhost:8001/health
 ```
 
-**Résultat attendu :**
+**Réponse attendue :**
 ```json
 {"status": "ok", "service": "finance_api", "db_initialized": true}
 ```
-**Interprétation :** 
-L'application a utilisé son jeton d'accès (`VAULT_TOKEN`) transmis de façon éphémère à l'exécution, a requêté le chemin racine `secret/data/scmd/postgres` en HTTP, et a consolidé les chaînes de connexion en mémoire vive. L'indicateur `db_initialized: true` fait office de preuve de bon fonctionnement de cette chaîne de sécurité.
+
+`db_initialized: true` confirme que l'API a bien contacté Vault au démarrage, récupéré les credentials depuis `secret/data/scmd/postgres`, et initialisé la connexion à la base de données. Aucun mot de passe n'est dans le code.
 
 ---
 
-## Étape 3 : Scénario d'Échec (Robustesse SecOps)
-*(Optionnel / Pour discussion)*
-Si le secret est modifié (rotation manuelle par équipe Ops) via la CLI Vault, ou si le conteneur Vault est inaccessible, le Microservice échouera dès le démarrage (Fail-Fast) en retournant une erreur `HTTPException(500)` bloquant ainsi toute fuite potentiel de tentatives de connexion non sécurisées vers la base de données cible.
+## Étape 3 : Tester la robustesse
+
+Si on modifie ou supprime le secret dans Vault (pour simuler une rotation), l'API échoue au démarrage avec une `HTTPException(500)` au lieu d'essayer de se connecter avec de mauvais credentials. C'est volontaire — le service préfère ne pas démarrer plutôt que d'exposer une connexion non sécurisée.
+
+---
 
 ## Conclusion
-L'architecture démontre l'application stricte du principe de moindre privilège (Least-Privilege). Les Microservices ne connaissent pas la topologie de la base de données avant leur exécution, neutralisant les risques de compromissions liés aux dépôts de code partagés.
+
+Les microservices ne connaissent pas les identifiants de la base de données avant leur exécution. Ça élimine le risque de fuite de credentials via le dépôt Git ou les images Docker.
