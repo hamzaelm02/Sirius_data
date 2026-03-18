@@ -43,8 +43,8 @@ flowchart TB
         
         %% Flux Data
         NHS_Open_Data -->|Ingestion Brute| HDFS_Bronze
-        HDFS_Bronze -.->|Nettoyage (Spark)| HDFS_Silver
-        HDFS_Silver -.->|Calcul KPIs (Spark)| Postgres_Data
+        HDFS_Bronze -.->|"Nettoyage (Spark)"| HDFS_Silver
+        HDFS_Silver -.->|"Calcul KPIs (Spark)"| Postgres_Data
         
         FinanceAPI -->|"Query Finance KPIs"| Postgres_Data
         PrescriptionAPI -->|"Query Prescription KPIs"| Postgres_Data
